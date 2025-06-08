@@ -217,11 +217,11 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
             let skewVal = skewness votes
 
             csv.WriteField player
-            csv.WriteField (Seq.length rounds)
-            csv.WriteField songsInRounds
-            pointCounts |> List.iter (fun c -> csv.WriteField c)
-            csv.WriteField meanVal
-            csv.WriteField medianVal
-            csv.WriteField sdVal
-            csv.WriteField skewVal
+            csv.WriteField(Seq.length rounds |> string)
+            csv.WriteField(songsInRounds |> string)
+            pointCounts |> List.iter (fun c -> csv.WriteField(c |> string))
+            csv.WriteField(meanVal |> string)
+            csv.WriteField(medianVal |> string)
+            csv.WriteField(sdVal |> string)
+            csv.WriteField(skewVal |> string)
             csv.NextRecord()
