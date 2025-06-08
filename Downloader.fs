@@ -125,7 +125,7 @@ type Downloader(hostName: string, cookie: string, leagueNameFilter: string, noCa
                     let postedBy = songXml |> selectElementText resultsPostedByPath
 
                     (
-                        SongInfo(leagueName, roundName, songName, artistName, albumName, postedBy, songLink, index + 1, songId, roundLink),
+                        SongInfo(leagueName, roundName, songName, artistName, albumName, postedBy, songLink, index + 1, songId, roundLink, 0.0),
 
                         songXml
                         |> selectSingleElement ".//div[starts-with(@id, 'votes-')]"

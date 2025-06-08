@@ -61,9 +61,31 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
 
     member _.WriteSongs() =
         Console.WriteLine "Writing songs.csv";
+
+        let pointsBySong =
+            votes
+            |> Seq.groupBy (fun v -> v.SongId)
+            |> Seq.map (fun (k, vs) -> k, vs |> Seq.sumBy (fun v -> v.Points) |> float)
+            |> Map.ofSeq
+
+        let pointsByRound =
+            votes
+            |> Seq.groupBy (fun v -> v.RoundId)
+            |> Seq.map (fun (k, vs) -> k, vs |> Seq.sumBy (fun v -> v.Points) |> float)
+            |> Map.ofSeq
+
+        let songsWithShare =
+            songs
+            |> Seq.map (fun s ->
+                let songPoints = pointsBySong |> Map.tryFind s.SongId |> Option.defaultValue 0.0
+                let roundPoints = pointsByRound |> Map.tryFind s.RoundId |> Option.defaultValue 0.0
+                let share = if roundPoints = 0.0 then 0.0 else songPoints / roundPoints
+                SongInfo(s.LeagueName, s.RoundName, s.SongName, s.ArtistName, s.AlbumName, s.PostedBy, s.SongLink, s.Position, s.SongId, s.RoundId, share)
+            )
+
         use writer = new StreamWriter "songs.csv"
         use csv = new CsvWriter(writer, CultureInfo.InvariantCulture)
-        csv.WriteRecords songs
+        csv.WriteRecords songsWithShare
 
     member _.WriteVoteCosineSimilarity() =
         let dotProduct seq1 seq2 = Seq.map2 (fun a b -> a * b) seq1 seq2 |> Seq.sum
