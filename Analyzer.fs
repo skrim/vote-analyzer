@@ -207,9 +207,16 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
                     |> Seq.map (fun songId -> getVote player roundId songId |> float))
                 |> Seq.toList
 
-            let pointCounts =
-                [0 .. 5]
-                |> List.map (fun p -> votes |> List.filter (fun v -> int v = p) |> List.length)
+            let pointPercentages =
+                if songsInRounds = 0 then
+                    [0 .. 5] |> List.map (fun _ -> 0.0)
+                else
+                    [0 .. 5]
+                    |> List.map (fun p ->
+                        votes
+                        |> List.filter (fun v -> int v = p)
+                        |> List.length
+                        |> fun c -> float c / float songsInRounds)
 
             let meanVal = mean votes
             let medianVal = median votes
@@ -219,7 +226,7 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
             csv.WriteField player
             csv.WriteField(Seq.length rounds |> string)
             csv.WriteField(songsInRounds |> string)
-            pointCounts |> List.iter (fun c -> csv.WriteField(c |> string))
+            pointPercentages |> List.iter (fun pct -> csv.WriteField(pct |> string))
             csv.WriteField(meanVal |> string)
             csv.WriteField(medianVal |> string)
             csv.WriteField(sdVal |> string)
