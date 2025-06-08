@@ -141,3 +141,87 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
             )
         )
         |> writePlayerTable "vote_cosine_similarity.csv" playersWithEnoughRounds
+
+    member _.WritePlayerStatistics() =
+        Console.WriteLine "Writing player_statistics.csv"
+
+        let mean (values: float list) =
+            if List.isEmpty values then Double.NaN else values |> List.average
+
+        let median (values: float list) =
+            match values |> List.sort with
+            | [] -> Double.NaN
+            | sorted ->
+                let len = List.length sorted
+                if len % 2 = 1 then
+                    sorted |> List.item (len / 2)
+                else
+                    let mid = len / 2
+                    (sorted.[mid - 1] + sorted.[mid]) / 2.0
+
+        let standardDeviation (values: float list) =
+            match values with
+            | [] -> Double.NaN
+            | _ ->
+                let m = mean values
+                values
+                |> List.averageBy (fun v -> (v - m) ** 2.0)
+                |> Math.Sqrt
+
+        let skewness (values: float list) =
+            match values with
+            | [] -> Double.NaN
+            | _ ->
+                let m = mean values
+                let sd = standardDeviation values
+                if sd = 0.0 then 0.0
+                else
+                    values
+                    |> List.averageBy (fun v -> ((v - m) / sd) ** 3.0)
+
+        use writer = new StreamWriter("player_statistics.csv")
+        use csv = new CsvWriter(writer, CultureInfo.InvariantCulture)
+
+        csv.WriteField "PlayerName"
+        csv.WriteField "Rounds"
+        csv.WriteField "SongsInRounds"
+        for i in 0 .. 5 do
+            csv.WriteField($"Points_{i}")
+        csv.WriteField "Mean"
+        csv.WriteField "Median"
+        csv.WriteField "StandardDeviation"
+        csv.WriteField "Skewness"
+        csv.NextRecord()
+
+        for player in participants do
+            let rounds = roundsOfParticipants |> Map.find player
+            let songsInRounds =
+                rounds
+                |> Seq.sumBy (fun r -> songIdsByRound |> Map.find r |> Set.count)
+
+            let votes =
+                rounds
+                |> Seq.collect (fun roundId ->
+                    songIdsByRound
+                    |> Map.find roundId
+                    |> Seq.map (fun songId -> getVote player roundId songId |> float))
+                |> Seq.toList
+
+            let pointCounts =
+                [0 .. 5]
+                |> List.map (fun p -> votes |> List.filter (fun v -> int v = p) |> List.length)
+
+            let meanVal = mean votes
+            let medianVal = median votes
+            let sdVal = standardDeviation votes
+            let skewVal = skewness votes
+
+            csv.WriteField player
+            csv.WriteField (Seq.length rounds)
+            csv.WriteField songsInRounds
+            pointCounts |> List.iter (fun c -> csv.WriteField c)
+            csv.WriteField meanVal
+            csv.WriteField medianVal
+            csv.WriteField sdVal
+            csv.WriteField skewVal
+            csv.NextRecord()
