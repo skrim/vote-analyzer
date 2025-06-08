@@ -9,12 +9,6 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
 
     let minRounds = 6
 
-    let songIdsByRound =
-        songs
-        |> Seq.groupBy (fun s -> s.RoundId)
-        |> Seq.map (fun (k, v) -> k, v |> Seq.map (fun s -> s.SongId) |> Set.ofSeq)
-        |> Map.ofSeq
-
     let participants =
         songs
         |> Seq.map (fun s -> s.PostedBy)
@@ -28,19 +22,6 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
             p, rounds
         )
         |> Map.ofSeq
-
-    let playersWithEnoughRounds =
-        participants
-        |> Seq.filter (fun p ->
-            roundsOfParticipants
-            |> Map.find p
-            |> Seq.length >= minRounds
-        )
-
-    let ownSongs =
-        songs
-        |> Seq.map (fun s -> s.PostedBy, s.RoundId, s.SongId)
-        |> Set.ofSeq
 
     let votesOfPlayersByRound =
         votes
@@ -56,14 +37,6 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
                 |> Map.ofSeq)
             |> Map.ofSeq)
         |> Map.ofSeq
-
-    let getVote player roundId songId =
-        match votesOfPlayersByRound |> Map.find roundId |> Map.find player |> Map.tryFind songId with
-        | Some v -> v.Points
-        | None ->
-            match ownSongs |> Set.contains (player, roundId, songId) with
-            | true -> 5 // own song gets 5 points
-            | false -> 0
 
     let writePlayerTable (fileName: string) (players: string seq) (values: float seq seq) =
         Console.WriteLine $"Writing {fileName}"
@@ -96,10 +69,37 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
         let dotProduct seq1 seq2 = Seq.map2 (fun a b -> a * b) seq1 seq2 |> Seq.sum
         let magnitude seq = seq |> Seq.map (fun x -> x * x) |> Seq.sum |> Math.Sqrt
 
-        // mean of player votes is 0
-        let centerVotes votes =
+        // mean of player votes becomes 0
+        let normalizeVotes votes =
             let mean = votes |> Seq.average
             votes |> Seq.map (fun v -> v - mean)
+
+        let ownSongs =
+            songs
+            |> Seq.map (fun s -> s.PostedBy, s.RoundId, s.SongId)
+            |> Set.ofSeq
+
+        let getVote player roundId songId =
+            match votesOfPlayersByRound |> Map.find roundId |> Map.find player |> Map.tryFind songId with
+            | Some v -> v.Points |> float
+            | None ->
+                match ownSongs |> Set.contains (player, roundId, songId) with
+                | true -> 5.0 // own song gets 5 points
+                | false -> 0.0
+
+        let songIdsByRound =
+            songs
+            |> Seq.groupBy (fun s -> s.RoundId)
+            |> Seq.map (fun (k, v) -> k, v |> Seq.map (fun s -> s.SongId) |> Set.ofSeq)
+            |> Map.ofSeq
+
+        let playersWithEnoughRounds =
+            participants
+            |> Seq.filter (fun p ->
+                roundsOfParticipants
+                |> Map.find p
+                |> Seq.length >= minRounds
+            )
 
         playersWithEnoughRounds
         |> Seq.map (fun player1 ->
@@ -121,23 +121,17 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
                         |> Seq.collect (fun roundId ->
                             songIdsByRound
                             |> Map.find roundId
-                            |> Seq.map (fun songId ->
-                                let v1 = getVote player1 roundId songId |> float
-                                let v2 = getVote player2 roundId songId |> float
-                                v1, v2
-                            )
+                            |> Seq.map (fun songId -> getVote player1 roundId songId, getVote player2 roundId songId)
                         )
                         |> Seq.toList
                         |> List.unzip
 
-                    let centered1 = centerVotes votes1
-                    let centered2 = centerVotes votes2
+                    let n1 = normalizeVotes votes1
+                    let n2 = normalizeVotes votes2
 
-                    let dot = dotProduct centered1 centered2
-
-                    match magnitude centered1, magnitude centered2 with
+                    match magnitude n1, magnitude n2 with
                     | 0.0, 0.0 -> 0.0
-                    | m1, m2 -> dot / (m1 * m2)
+                    | m1, m2 -> dotProduct n1 n2 / (m1 * m2)
             )
         )
         |> writePlayerTable "vote_cosine_similarity.csv" playersWithEnoughRounds
