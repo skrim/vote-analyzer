@@ -25,6 +25,9 @@ type Downloader(hostName: string, cookie: string, leagueNameFilter: string, noCa
     let elementExists (xpath: string) (node: XmlNode) =
         node.SelectSingleNode xpath :?> XmlElement |> fun n -> n <> null
 
+    let attributeExists (xpath: string) (node: XmlNode) =
+        node.SelectSingleNode xpath :?> XmlAttribute |> fun n -> n <> null
+
     let selectAttributeValue (xpath: string) (node: XmlNode) =
         (node.SelectSingleNode xpath :?> XmlAttribute).Value
 
@@ -47,6 +50,7 @@ type Downloader(hostName: string, cookie: string, leagueNameFilter: string, noCa
     member _.Download() =
         use httpClientHandler = new HttpClientHandler(AllowAutoRedirect = false, UseCookies = true)
         httpClientHandler.CookieContainer.Add(Uri(baseUrl), Cookie(hostName, cookie))
+        httpClientHandler.AllowAutoRedirect <- true
         use httpClient = new HttpClient(httpClientHandler)
 
         let cacheDirectory = Path.Combine(Path.GetTempPath(), "_VoteCache")
@@ -64,7 +68,7 @@ type Downloader(hostName: string, cookie: string, leagueNameFilter: string, noCa
                 |> String.concat ""
 
             let url = Uri(baseUrl + localPath.TrimStart '/')
-            Console.WriteLine $"Loading {url}"
+            //Console.WriteLine $"Loading {url}"
 
             let cachePath = Path.Combine(cacheDirectory, url |> calculateHash)
 
@@ -98,50 +102,68 @@ type Downloader(hostName: string, cookie: string, leagueNameFilter: string, noCa
             xmlDoc.Load contentStream
             xmlDoc
 
+        Some "-/completedLeagues"
+        |> Seq.unfold (fun (maybeUrl:string option) ->
+            match maybeUrl with
+            | None -> None
+            | Some url ->
+                let document = loadXml $"completed/{url}"
 
-        loadXml "completed/-/completedLeagues"
-        |> selectElements "//a"
-        |> Seq.map (fun l -> l.GetAttribute "href", l.InnerText.Trim() |> HttpUtility.HtmlDecode)
-        |> Seq.filter (fun (_, n) -> String.IsNullOrEmpty leagueNameFilter || n.Contains(leagueNameFilter, StringComparison.OrdinalIgnoreCase))
-        |> Seq.map (fun (roundUrl, leagueName) ->
+                let leagues =
+                    document
+                    |> selectElements "//a"
+                    |> Seq.map (fun l -> l.GetAttribute "href", l.InnerText.Trim() |> HttpUtility.HtmlDecode)
+                    |> Seq.filter (fun (_, n) -> String.IsNullOrEmpty leagueNameFilter || n.Contains(leagueNameFilter, StringComparison.OrdinalIgnoreCase))
+                    |> Seq.map (fun (roundUrl, leagueName) ->
 
-            loadXml $"{roundUrl}-/rounds"
-            |> selectElements "//div[@class='card-body']"
-            |> Seq.map (fun roundXml ->
-                let roundName = roundXml |> selectElementText ".//div[@class='col']/h5"
-                let roundLink = roundXml |> selectAttributeValue ".//a[contains(., 'RESULTS')]/@href"
+                        Console.WriteLine $"League {leagueName}"
 
-                loadXml $"{roundLink}-/results"
-                |> selectElements "//div[starts-with(@id, 'spotify:')]"
-                |> Seq.filter (fun s -> not ((s |> selectElementText resultsPostedByPath).StartsWith userLeft))
-                |> Seq.mapi (fun index songXml ->
-                    let songId = songXml |> selectAttributeValue "@id"
+                        loadXml $"{roundUrl}-/rounds"
+                        |> selectElements "//div[@class='card-body']"
+                        |> Seq.map (fun roundXml ->
+                            let roundName = roundXml |> selectElementText ".//div[@class='col']/h5"
+                            let roundLink = roundXml |> selectAttributeValue ".//a[contains(., 'RESULTS')]/@href"
 
-                    let trackNode = (songXml |> (selectSingleElement resultsSongNamePath)).ParentNode.ParentNode
-                    let songName = songXml |> selectElementText resultsSongNamePath
-                    let artistName = trackNode |> selectElementText "(.//p)[1]"
-                    let albumName = trackNode |> selectElementText "(.//p)[2]"
-                    let songLink = $"https://open.spotify.com/track/{songId.Split(':')[2]}"
-                    let postedBy = songXml |> selectElementText resultsPostedByPath
+                            Console.WriteLine $"- Round {roundName}"
 
-                    (
-                        SongInfo(leagueName, roundName, songName, artistName, albumName, postedBy, songLink, index + 1, songId, roundLink),
+                            loadXml $"{roundLink}-/results"
+                            |> selectElements "//div[starts-with(@id, 'spotify:')]"
+                            |> Seq.filter (fun s -> not ((s |> selectElementText resultsPostedByPath).StartsWith userLeft))
+                            |> Seq.mapi (fun index songXml ->
+                                let songId = songXml |> selectAttributeValue "@id"
 
-                        songXml
-                        |> selectSingleElement ".//div[starts-with(@id, 'votes-')]"
-                        |> selectElements "./div"
-                        |> Seq.filter (fun s -> s |> selectElementText voteFromPath <> userLeft)
-                        |> Seq.filter (fun s -> s |> elementExists votePointsPath)
-                        |> Seq.map (fun voteXml ->
-                            let from = voteXml |> selectElementText voteFromPath
-                            let points = voteXml |> selectSingleElement votePointsPath |> fun n -> n.InnerText.Trim() |> HttpUtility.HtmlDecode |> int
-                            VoteInfo(roundLink, songId, from, postedBy, points)
+                                let trackNode = (songXml |> (selectSingleElement resultsSongNamePath)).ParentNode.ParentNode
+                                let songName = songXml |> selectElementText resultsSongNamePath
+                                let artistName = trackNode |> selectElementText "(.//p)[1]"
+                                let albumName = trackNode |> selectElementText "(.//p)[2]"
+                                let songLink = $"https://open.spotify.com/track/{songId.Split(':')[2]}"
+                                let postedBy = songXml |> selectElementText resultsPostedByPath
+
+                                (
+                                    SongInfo(leagueName, roundName, songName, artistName, albumName, postedBy, songLink, index + 1, songId, roundLink),
+
+                                    songXml
+                                    |> selectSingleElement ".//div[starts-with(@id, 'votes-')]"
+                                    |> selectElements "./div"
+                                    |> Seq.filter (fun s -> s |> selectElementText voteFromPath <> userLeft)
+                                    |> Seq.filter (fun s -> s |> elementExists votePointsPath)
+                                    |> Seq.map (fun voteXml ->
+                                        let from = voteXml |> selectElementText voteFromPath
+                                        let points = voteXml |> selectSingleElement votePointsPath |> fun n -> n.InnerText.Trim() |> HttpUtility.HtmlDecode |> int
+                                        VoteInfo(roundLink, songId, from, postedBy, points)
+                                    )
+                                )
+                            )
                         )
+                        |> Seq.concat
                     )
-                )
-            )
-            |> Seq.concat
+
+                match document |> attributeExists "//div/@hx-get" with
+                | true -> Some(leagues, Some (document |> selectAttributeValue "//div/@hx-get"))
+                | false -> Some(leagues, None)
+
         )
+        |> Seq.concat
         |> Seq.concat
         |> Seq.fold (fun (accSongs, accVotes) (song, votes) -> (song :: accSongs, Seq.append votes accVotes) ) ([], Seq.empty<VoteInfo>)
         |> fun (s, v) -> (s |> List.rev, v |> Seq.toList)

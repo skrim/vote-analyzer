@@ -4,6 +4,7 @@ open System
 open System.Globalization
 open System.IO
 open CsvHelper
+open CsvHelper.Configuration
 
 type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
 
@@ -23,6 +24,13 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
         )
         |> Map.ofSeq
 
+    let getWriter (filename: string) =
+        let writer = new StreamWriter(filename)
+
+        let config = new CsvConfiguration(CultureInfo.InvariantCulture)
+        config.Delimiter <- "|"
+        new CsvWriter(writer, config)
+
     let votesOfPlayersByRound =
         votes
         |> Seq.groupBy (fun v -> v.RoundId)
@@ -40,8 +48,8 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
 
     let writePlayerTable (fileName: string) (players: string seq) (values: float seq seq) =
         Console.WriteLine $"Writing {fileName}"
-        use writer = new StreamWriter(fileName)
-        use csv = new CsvWriter(writer, CultureInfo.InvariantCulture)
+
+        use csv = getWriter fileName
 
         let playerRoundcount player = roundsOfParticipants |> Map.find player |> Seq.length
 
@@ -61,8 +69,7 @@ type Analyzer(songs: seq<SongInfo>, votes: seq<VoteInfo>) =
 
     member _.WriteSongs() =
         Console.WriteLine "Writing songs.csv";
-        use writer = new StreamWriter "songs.csv"
-        use csv = new CsvWriter(writer, CultureInfo.InvariantCulture)
+        use csv = getWriter "songs.csv"
         csv.WriteRecords songs
 
     member _.WriteVoteCosineSimilarity() =

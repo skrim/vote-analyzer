@@ -55,3 +55,4 @@ nunit-*.xml
 
 *.csv
 .fake
+run.bat
